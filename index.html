@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResQRoute - Offline Emergency System</title>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    :root {
+      --primary: #d9534f;
+      --primary-hover: #c9302c;
+      --bg: #f8f9fa;
+      --card-bg: #ffffff;
+      --text: #333333;
+      --border: #cccccc;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg);
+      color: var(--text);
+    }
+    header {
+      background-color: #1a1a1a;
+      color: white;
+      padding: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+    .status-badge {
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      font-weight: bold;
+    }
+    .status-online { background-color: #5cb85c; color: white; }
+    .status-syncing { background-color: #f0ad4e; color: white; }
+    .container {
+      max-width: 1000px;
+      margin: 20rem auto 2rem auto;
+      padding: 0 1rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: bold;
+    }
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .checkbox-group {
+      display: flex;
+      gap: 1rem;
+    }
+    .checkbox-group label {
+      font-weight: normal;
+    }
+    button {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:hover {
+      background-color: var(--primary-hover);
+    }
+    #map {
+      height: 350px;
+      width: 100%;
+      border-radius: 8px;
+      margin-top: 1rem;
+    }
+    .sync-panel {
+      background: #e9ecef;
+      padding: 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>ResQRoute</h1>
+    <div>
+      <span id="syncStatus" class="status-badge status-online">Local Storage Active</span>
+    </div>
+  </header>
+
+  <div class="container">
+    
+    <div class="sync-panel">
+      <h3>CouchDB Live Sync Configuration</h3>
+      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <input type="text" id="couchUrl" placeholder="http://admin:password@localhost:5984/resqroute" />
+        <button type="button" onclick="setupSync()" style="width: auto;">Start Live Sync</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Submit Emergency SOS Report</h2>
+      <form id="sosForm">
+        <div class="form-group">
+          <label for="headcount">Headcount (Number of People):</label>
+          <input type="number" id="headcount" value="1" min="1" required />
+        </div>
+
+        <div class="form-group">
+          <label for="medical">Medical Urgency Level:</label>
+          <select id="medical">
+            <option value="1">Low / Non-Critical</option>
+            <option value="5">Moderate / Injuries Present</option>
+            <option value="10">Critical / Life Threatening</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Vulnerabilities Present:</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" id="v_infants" value="3" /> Infants</label>
+            <label><input type="checkbox" id="v_elderly" value="2" /> Elderly</label>
+            <label><input type="checkbox" id="v_disabled" value="3" /> Mobility Impaired</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="location">GPS Coordinates:</label>
+          <div style="display:flex; gap: 0.5rem;">
+            <input type="text" id="location" placeholder="Detecting location..." readonly required />
+            <button type="button" onclick="getLocation()" style="width: auto;">Get GPS</button>
+          </div>
+        </div>
+
+        <button type="submit">SEND SOS REPORT</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Rescuer GIS Dashboard</h2>
+      <div id="map"></div>
+      <div id="reportList" style="margin-top: 1rem;"></div>
+    </div>
+
+  </div>
+  <script>
+    // 1. Initialize Local PouchDB Database
+    const localDB = new PouchDB('resqroute_local');
+    let remoteDB = null;
+    let syncHandler = null;
+    let map = null;
+    let mapMarkers = [];
+
+    // Initialize Map on Load
+    document.addEventListener('DOMContentLoaded', () => {
+      initMap();
+      renderDashboard();
+      getLocation(); // Auto-trigger location fetch
+
+      // Listen for local DB changes to update UI in real-time
+      localDB.changes({
+        since: 'now',
+        live: true,
+        include_docs: true
+      }).on('change', () => {
+        renderDashboard();
+      });
+    });
+
+    // 2. Leaflet Map Initialization
+    function initMap() {
+      // Default center (can be updated to default local coordinates)
+      map = L.map('map').setView([20.5937, 78.9629], 5);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+    }
+
+    // 3. Hardware GPS Detection
+    function getLocation() {
+      const locationInput = document.getElementById('location');
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude.toFixed(6);
+            const lng = position.coords.longitude.toFixed(6);
+            locationInput.value = `${lat}, ${lng}`;
+          },
+          (error) => {
+            alert('Unable to retrieve GPS location. Please enter manually or check permissions.');
+            locationInput.value = '20.5937, 78.9629'; // Default fallback
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      } else {
+        alert('Geolocation is not supported by this browser.');
+      }
+    }
+
+    // 4. Form Submission & Triage Priority Calculation
+    document.getElementById('sosForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const headcount = parseInt(document.getElementById('headcount').value) || 1;
+      const medical = parseInt(document.getElementById('medical').value) || 1;
+      
+      // Calculate vulnerability weight
+      let vulnerability = 0;
+      if (document.getElementById('v_infants').checked) vulnerability += 3;
+      if (document.getElementById('v_elderly').checked) vulnerability += 2;
+      if (document.getElementById('v_disabled').checked) vulnerability += 3;
+
+      // Priority Formula: U = (w1 * Headcount) + (w2 * Medical) + (w3 * Vulnerability)
+      const priorityScore = (1.5 * headcount) + (2.0 * medical) + (1.8 * vulnerability);
+
+      const locationStr = document.getElementById('location').value;
+      const [lat, lng] = locationStr.split(',').map(coord => parseFloat(coord.trim()));
+
+      const report = {
+        _id: new Date().toISOString(),
+        headcount,
+        medical,
+        vulnerabilities: {
+          infants: document.getElementById('v_infants').checked,
+          elderly: document.getElementById('v_elderly').checked,
+          disabled: document.getElementById('v_disabled').checked
+        },
+        priorityScore,
+        location: { lat, lng },
+        status: 'Pending',
+        timestamp: new Date().toLocaleString()
+      };
+
+      try {
+        await localDB.put(report);
+        alert('Emergency SOS Report saved locally!');
+        document.getElementById('sosForm').reset();
+        getLocation();
+      } catch (err) {
+        console.error('Error saving report:', err);
+        alert('Failed to save SOS report.');
+      }
+    });
+
+    // 5. Render Rescuer Dashboard & Priority Queue
+    async function renderDashboard() {
+      try {
+        const result = await localDB.allDocs({ include_docs: true });
+        let reports = result.rows.map(row => row.doc);
+
+        // Sort by Priority Score U (Descending - highest urgency first)
+        reports.sort((a, b) => b.priorityScore - a.priorityScore);
+
+        // Clear existing map markers
+        mapMarkers.forEach(marker => map.removeLayer(marker));
+        mapMarkers = [];
+
+        const reportListDiv = document.getElementById('reportList');
+        reportListDiv.innerHTML = '<h3>Active Emergency Requests (Sorted by Priority)</h3>';
+
+        if (reports.length === 0) {
+          reportListDiv.innerHTML += '<p>No active emergency reports found.</p>';
+          return;
+        }
+
+        let bounds = [];
+
+        reports.forEach((doc, index) => {
+          // Add Map Marker
+          if (doc.location && doc.location.lat && doc.location.lng) {
+            const marker = L.marker([doc.location.lat, doc.location.lng])
+              .addTo(map)
+              .bindPopup(`
+                <b>Priority Rank #${index + 1}</b><br>
+                <b>Score:</b> ${doc.priorityScore.toFixed(1)}<br>
+                <b>People:</b> ${doc.headcount}<br>
+                <b>Medical Urgency:</b> ${doc.medical}/10
+              `);
+            
+            mapMarkers.push(marker);
+            bounds.push([doc.location.lat, doc.location.lng]);
+          }
+
+          // Add Card to Dashboard List
+          const item = document.createElement('div');
+          item.style.cssText = 'border: 1px solid #ddd; padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; background: #fafafa;';
+          item.innerHTML = `
+            <strong>Rank #${index + 1} | Priority Score: ${doc.priorityScore.toFixed(1)}</strong> 
+            <span style="color: #d9534f; font-weight: bold; float: right;">[${doc.status}]</span><br>
+            <small>Submitted: ${doc.timestamp}</small><br>
+            <span>👥 Headcount: ${doc.headcount} | 🚑 Medical Urgency: ${doc.medical}/10</span>
+          `;
+          reportListDiv.appendChild(item);
+        });
+
+        if (bounds.length > 0) {
+          map.fitBounds(bounds, { padding: [20, 20] });
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard reports:', err);
+      }
+    }
+
+    // 6. Live Background CouchDB Synchronization Engine
+    function setupSync() {
+      const couchUrl = document.getElementById('couchUrl').value.trim();
+      const statusBadge = document.getElementById('syncStatus');
+
+      if (!couchUrl) {
+        alert('Please enter a valid CouchDB URL.');
+        return;
+      }
+
+      if (syncHandler) {
+        syncHandler.cancel();
+      }
+
+      try {
+        remoteDB = new PouchDB(couchUrl);
+
+        syncHandler = localDB.sync(remoteDB, {
+          live: true,
+          retry: true
+        }).on('change', (info) => {
+          console.log('Data synced:', info);
+          renderDashboard();
+        }).on('paused', (err) => {
+          statusBadge.textContent = '🟢 CouchDB Live Sync';
+          statusBadge.className = 'status-badge status-online';
+        }).on('active', () => {
+          statusBadge.textContent = '🟡 Syncing Data...';
+          statusBadge.className = 'status-badge status-syncing';
+        }).on('error', (err) => {
+          statusBadge.textContent = '🔴 Sync Error';
+          console.error('Sync error:', err);
+        });
+
+        alert('Live Sync Process Initiated!');
+      } catch (err) {
+        console.error('CouchDB setup failed:', err);
+        alert('Failed to connect to target CouchDB instance.');
+      }
+    }
+  </script>
+</body>
+</html>

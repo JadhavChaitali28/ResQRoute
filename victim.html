@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResQRoute - Emergency SOS</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: #0f172a; color: #f8fafc; padding: 14px; max-width: 480px; margin: 0 auto; line-height: 1.4; }
+        .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .header-card { background: linear-gradient(135deg, #dc2626, #991b1b); color: #ffffff; text-align: center; border: none; padding: 16px; }
+        .lang-bar { display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; }
+        .lang-btn { background: rgba(0,0,0,0.3); color: #ffffff; border: 1px solid rgba(255,255,255,0.4); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; }
+        .lang-btn.active { background: #ffffff; color: #dc2626; border-color: #ffffff; }
+        .title { font-size: 22px; font-weight: 900; letter-spacing: 0.5px; }
+        .subtitle { font-size: 11px; opacity: 0.9; margin-top: 2px; }
+        .notice-card { background-color: #451a03; border: 1px solid #b45309; color: #fef3c7; font-size: 12px; display: flex; gap: 8px; align-items: flex-start; }
+        .notice-title { display: block; font-weight: bold; font-size: 10px; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #cbd5e1; }
+        .form-input, .form-select { width: 100%; background-color: #0f172a; border: 1px solid #334155; color: #ffffff; padding: 10px; border-radius: 8px; font-size: 15px; text-align-last: center; outline: none; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .checkbox-tile { display: flex; align-items: center; gap: 10px; background-color: #0f172a; border: 1px solid #334155; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px; margin-bottom: 6px; }
+        .checkbox-tile input { accent-color: #ef4444; width: 18px; height: 18px; }
+        .btn-submit { width: 100%; background: linear-gradient(135deg, #dc2626, #b91c1c); color: #ffffff; font-weight: 900; font-size: 16px; padding: 14px; border: none; border-radius: 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(220,38,38,0.4); margin-top: 6px; }
+        .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+        .success-card { background-color: #064e3b; border: 1px solid #10b981; color: #ecfdf5; text-align: center; }
+        .status-pill { background-color: #0f172a; border: 1px solid #334155; padding: 8px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; margin: 10px 0; font-size: 12px; }
+        .badge { background-color: #eab308; color: #000000; font-weight: 800; padding: 3px 8px; border-radius: 12px; font-size: 10px; text-transform: uppercase; }
+        details { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; margin-top: 6px; font-size: 12px; }
+        summary { font-weight: 700; cursor: pointer; }
+        summary.bleeding { color: #f87171; }
+        summary.flood { color: #fbbf24; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <!-- Header & Multilingual Switcher -->
+    <div class="card header-card">
+        <div class="lang-bar">
+            <button onclick="setLanguage('en')" id="lang-en" class="lang-btn active">English</button>
+            <button onclick="setLanguage('hi')" id="lang-hi" class="lang-btn">हिंदी</button>
+            <button onclick="setLanguage('mr')" id="lang-mr" class="lang-btn">मराठी</button>
+        </div>
+        <h1 class="title" id="txt-title">🚨 RESQROUTE SOS</h1>
+        <p class="subtitle" id="txt-subtitle">Zero-Internet Emergency Distress Network</p>
+    </div>
+
+    <!-- Live Rescuer Announcement Banner -->
+    <div class="card notice-card">
+        <span style="font-size: 18px;">📢</span>
+        <div>
+            <strong class="notice-title">Live Rescuer Notice:</strong>
+            <p id="broadcastMsg" style="margin-top: 2px;">Fetching latest rescue updates...</p>
+        </div>
+    </div>
+    <!-- Success Message & Rescue Status Box -->
+    <div id="successBox" class="card success-card hidden">
+        <h2 style="font-size: 18px; font-weight: bold;" id="txt-success-title">✅ SOS REPORT SENT!</h2>
+        <div class="status-pill">
+            <span style="color: #cbd5e1;">Rescue Status:</span>
+            <span class="badge">⏳ QUEUED FOR RESCUE</span>
+        </div>
+        <p style="font-size: 13px;" id="txt-success-desc">Your location and distress priority have been synced to the local rescuer dashboard.</p>
+        <div style="background-color: #022c22; padding: 8px; border-radius: 6px; border: 1px solid #047857; font-size: 11px; color: #a7f3d0; margin-top: 10px;">
+            📡 Keep your phone connected to <strong>ResQRoute_Rescue</strong> Wi-Fi. Rescuers are actively tracking your position.
+        </div>
+    </div>
+
+    <!-- SOS Form -->
+    <form id="sosForm" class="card">
+        <div class="form-group">
+            <label id="lbl-headcount">👥 Number of People Needing Rescue</label>
+            <input type="number" id="headcount" value="1" min="1" max="50" class="form-input" required>
+        </div>
+
+        <div class="form-group">
+            <label id="lbl-urgency">🩺 Medical Urgency Level</label>
+            <select id="urgency" class="form-select">
+                <option value="Moderate" id="opt-mod">🟡 Moderate (Stable / Trapped)</option>
+                <option value="High" id="opt-high">🟠 High (Injuries Present)</option>
+                <option value="Critical" id="opt-crit">🔴 Critical (Severe Bleeding / Life Threatening)</option>
+            </select>
+        </div>
+
+        <!-- Resource Needs Checklist -->
+        <div class="form-group">
+            <label id="lbl-needs">📦 Specific Immediate Needs</label>
+            <div class="grid-2">
+                <label class="checkbox-tile">
+                    <input type="checkbox" name="needs" value="FoodWater">
+                    <span>🍞 Food / Water</span>
+                </label>
+                <label class="checkbox-tile">
+                    <input type="checkbox" name="needs" value="Medicines">
+                    <span>💊 Medicines</span>
+                </label>
+                <label class="checkbox-tile">
+                    <input type="checkbox" name="needs" value="Boat">
+                    <span>🚤 Boat Evac</span>
+                </label>
+                <label class="checkbox-tile">
+                    <input type="checkbox" name="needs" value="FirstAid">
+                    <span>🩹 First Aid Kit</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label id="lbl-vuln">⚠️ Vulnerabilities Present</label>
+            <label class="checkbox-tile">
+                <input type="checkbox" name="vulnerabilities" value="Infants">
+                <span id="lbl-infants">👶 Infants / Children</span>
+            </label>
+            <label class="checkbox-tile">
+                <input type="checkbox" name="vulnerabilities" value="Elderly">
+                <span id="lbl-elderly">👴 Elderly Persons</span>
+            </label>
+            <label class="checkbox-tile">
+                <input type="checkbox" name="vulnerabilities" value="Medical">
+                <span id="lbl-medical">🚑 Mobility Impaired / Critical Illness</span>
+            </label>
+        </div>
+
+        <div class="form-group grid-2">
+            <div>
+                <label style="font-size: 11px; color: #94a3b8;">Latitude</label>
+                <input type="text" id="lat" value="19.0760" class="form-input" style="font-size: 12px; padding: 6px;">
+            </div>
+            <div>
+                <label style="font-size: 11px; color: #94a3b8;">Longitude</label>
+                <input type="text" id="lng" value="72.8777" class="form-input" style="font-size: 12px; padding: 6px;">
+            </div>
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn-submit">
+            📡 SEND SOS REPORT
+        </button>
+    </form>
+
+    <!-- Offline First-Aid & Emergency Survival Tips -->
+    <div class="card">
+        <h3 style="font-size: 12px; font-weight: bold; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.5px;">
+            🩹 Offline Survival Guide
+        </h3>
+        <details>
+            <summary class="bleeding">🩸 How to Stop Severe Bleeding</summary>
+            <p style="margin-top: 6px; color: #94a3b8; font-size: 11px; line-height: 1.5;">Apply firm, direct pressure on the wound using a clean cloth. Keep holding firm pressure continuously until rescuers arrive. Elevate the injured limb above heart level if possible.</p>
+        </details>
+        <details>
+            <summary class="flood">🌊 Flood Water Safety Rules</summary>
+            <p style="margin-top: 6px; color: #94a3b8; font-size: 11px; line-height: 1.5;">Never walk through moving water deeper than your ankles. Stay on higher floors/rooftops if trapped. Avoid touching submerged electrical equipment or wires.</p>
+        </details>
+    </div>
+    <script>
+        const translations = {
+            en: {
+                title: "🚨 RESQROUTE SOS",
+                subtitle: "Zero-Internet Emergency Distress Network",
+                headcount: "👥 Number of People Needing Rescue",
+                urgency: "🩺 Medical Urgency Level",
+                optMod: "🟡 Moderate (Stable / Trapped)",
+                optHigh: "🟠 High (Injuries Present)",
+                optCrit: "🔴 Critical (Severe Bleeding / Life Threatening)",
+                needs: "📦 Specific Immediate Needs",
+                vuln: "⚠️ Vulnerabilities Present",
+                infants: "👶 Infants / Children",
+                elderly: "👴 Elderly Persons",
+                medical: "🚑 Mobility Impaired / Critical Illness",
+                btn: "📡 SEND SOS REPORT",
+                successTitle: "✅ SOS REPORT SENT!",
+                successDesc: "Your location and distress priority have been synced to the local rescuer dashboard."
+            },
+            hi: {
+                title: "🚨 रेस्क्यू-रूट आपातकालीन SOS",
+                subtitle: "बिना इंटरनेट की आपातकालीन सहायता नेटवर्क",
+                headcount: "👥 बचाव के लिए कुल लोगों की संख्या",
+                urgency: "🩺 चिकित्सा आपातकाल का स्तर",
+                optMod: "🟡 मध्यम (सुरक्षित स्थान पर फंसे हैं)",
+                optHigh: "🟠 उच्च (चोट लगी है)",
+                optCrit: "🔴 गंभीर (गंभीर रक्तस्राव / जीवन का खतरा)",
+                needs: "📦 तत्काल आवश्यकताएं",
+                vuln: "⚠️ विशेष स्थितियां",
+                infants: "👶 नवजात शिशु / बच्चे",
+                elderly: "👴 बुजुर्ग व्यक्ति",
+                medical: "🚑 गंभीर बीमारी / चलने में असमर्थ",
+                btn: "📡 SOS रिपोर्ट भेजें",
+                successTitle: "✅ SOS रिपोर्ट भेज दी गई है!",
+                successDesc: "आपकी स्थिति और प्राथमिकता बचाव दल के डैशबोर्ड पर सिंक कर दी गई है।"
+            },
+            mr: {
+                title: "🚨 रेस्क्यू-रूट आणीबाणी SOS",
+                subtitle: "इंटरनेटशिवाय आणीबाणी मदत नेटवर्क",
+                headcount: "👥 मदतीची गरज असलेल्या लोकांची संख्या",
+                urgency: "🩺 वैद्यकीय तातडीचा स्तर",
+                optMod: "🟡 मध्यम (फसलेले / स्थिर)",
+                optHigh: "🟠 उच्च (दुखापत झाली आहे)",
+                optCrit: "🔴 गंभीर (रक्तस्राव / जीवाला धोका)",
+                needs: "📦 तात्काळ गरजा",
+                vuln: "⚠️ विशेष परिस्थिती",
+                infants: "👶 लहान मुले / बाळ",
+                elderly: "👴 वृद्ध व्यक्ती",
+                medical: "🚑 आजारी / चालण्यास असमर्थ",
+                btn: "📡 SOS रिपोर्ट पाठवा",
+                successTitle: "✅ SOS REPORT पाठवला गेला आहे!",
+                successDesc: "तुमचे स्थान आणि प्राधान्य बचाव पथकाच्या डॅशबोर्डवर अपडेट झाले आहे."
+            }
+        };
+
+        function setLanguage(lang) {
+            const t = translations[lang];
+            document.getElementById('txt-title').innerText = t.title;
+            document.getElementById('txt-subtitle').innerText = t.subtitle;
+            document.getElementById('lbl-headcount').innerText = t.headcount;
+            document.getElementById('lbl-urgency').innerText = t.urgency;
+            document.getElementById('opt-mod').innerText = t.optMod;
+            document.getElementById('opt-high').innerText = t.optHigh;
+            document.getElementById('opt-crit').innerText = t.optCrit;
+            document.getElementById('lbl-needs').innerText = t.needs;
+            document.getElementById('lbl-vuln').innerText = t.vuln;
+            document.getElementById('lbl-infants').innerText = t.infants;
+            document.getElementById('lbl-elderly').innerText = t.elderly;
+            document.getElementById('lbl-medical').innerText = t.medical;
+            document.getElementById('submitBtn').innerText = t.btn;
+            document.getElementById('txt-success-title').innerText = t.successTitle;
+            document.getElementById('txt-success-desc').innerText = t.successDesc;
+
+            ['en', 'hi', 'mr'].forEach(l => {
+                const btn = document.getElementById(`lang-${l}`);
+                if (l === lang) {
+                    btn.className = "lang-btn active";
+                } else {
+                    btn.className = "lang-btn";
+                }
+            });
+        }
+
+        // Poll for rescuer live announcements
+        async function fetchBroadcast() {
+            try {
+                const res = await fetch('/api/broadcast');
+                const data = await res.json();
+                document.getElementById('broadcastMsg').innerText = data.message;
+            } catch(e) {}
+        }
+        setInterval(fetchBroadcast, 3000);
+        fetchBroadcast();
+
+        // Hardware GPS auto-fetch
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    document.getElementById('lat').value = pos.coords.latitude.toFixed(6);
+                    document.getElementById('lng').value = pos.coords.longitude.toFixed(6);
+                },
+                (err) => console.log('Using fallback coordinates')
+            );
+        }
+
+        document.getElementById('sosForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'TRANSMITTING...';
+
+            const vulnerabilities = Array.from(document.querySelectorAll('input[name="vulnerabilities"]:checked')).map(el => el.value);
+            const needs = Array.from(document.querySelectorAll('input[name="needs"]:checked')).map(el => el.value);
+
+            const payload = {
+                headcount: document.getElementById('headcount').value,
+                urgency: document.getElementById('urgency').value,
+                vulnerabilities: vulnerabilities,
+                needs: needs,
+                lat: document.getElementById('lat').value,
+                lng: document.getElementById('lng').value
+            };
+
+            try {
+                const res = await fetch('/api/sos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    document.getElementById('sosForm').classList.add('hidden');
+                    document.getElementById('successBox').classList.remove('hidden');
+                }
+            } catch (err) {
+                alert('Submission failed. Re-connecting to local network...');
+                submitBtn.disabled = false;
+                setLanguage('en');
+            }
+        });
+    </script>
+</body>
+</html>

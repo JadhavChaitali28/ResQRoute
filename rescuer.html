@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResQRoute - Rescuer GIS Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { background-color: #0b0f19; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+        #map { height: 380px; width: 100%; border-radius: 12px; }
+        .leaflet-container { background: #1e293b !important; }
+    </style>
+</head>
+<body class="p-4 max-w-6xl mx-auto space-y-4">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-md gap-2">
+        <div>
+            <h1 class="text-xl font-black text-red-500 tracking-wide flex items-center gap-2">
+                🚑 RESQROUTE GIS TRIAGE DASHBOARD
+            </h1>
+            <p class="text-xs text-slate-400">Offline Disaster Node | Local Subnet Triage Server</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="openHistoryModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-full text-xs shadow transition">
+                📜 View Full History
+            </button>
+            <div class="flex items-center gap-2 bg-emerald-950 border border-emerald-700 text-emerald-300 px-3 py-1.5 rounded-full text-xs font-bold">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                LIVE NODE ACTIVE
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Broadcast Controller -->
+    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-lg space-y-2">
+        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+            <span>📢 Public Broadcast Announcement</span>
+            <span class="text-[10px] text-slate-400 font-normal">(Sent instantly to all connected victim screens)</span>
+        </h2>
+        <div class="flex gap-2">
+            <input type="text" id="broadcastInput" placeholder="Type emergency instruction for victims..." class="flex-1 bg-slate-950 border border-slate-700 text-slate-200 text-xs p-2.5 rounded-lg focus:outline-none focus:border-amber-500">
+            <button onclick="sendBroadcast()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2 rounded-lg text-xs tracking-wider">
+                BROADCAST
+            </button>
+        </div>
+    </div>
+
+    <!-- GIS Map Section -->
+    <div class="bg-slate-900 p-3 rounded-xl border border-slate-800 shadow-lg">
+        <div class="flex justify-between items-center mb-2 px-1">
+            <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">🗺️ Spatial Radar View</h2>
+            <span id="activeCount" class="text-xs bg-red-950 border border-red-800 text-red-300 px-2.5 py-0.5 rounded-full font-bold">0 Requests</span>
+        </div>
+        <div id="map"></div>
+    </div>
+    <!-- Active Triage Queue Section -->
+    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-lg">
+        <h2 class="text-base font-bold text-slate-200 mb-3 flex items-center justify-between">
+            <span>⚡ Active Prioritized Triage Queue</span>
+            <span class="text-xs font-normal text-slate-400">Auto-Sorted by Priority Score (U)</span>
+        </h2>
+        
+        <div id="queueList" class="space-y-3">
+            <div id="emptyState" class="text-center py-8 text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                <p class="text-base font-semibold">No Active SOS Requests</p>
+                <p class="text-xs mt-1">Connect smartphone to hotspot and submit a form at <code class="text-slate-400">http://192.168.137.1/victim</code></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-800">
+                <h3 class="font-black text-lg text-indigo-400 flex items-center gap-2">
+                    📜 Database Audit History Log
+                </h3>
+                <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+            </div>
+            <div id="historyList" class="overflow-y-auto my-4 space-y-2 pr-1 flex-1 text-xs">
+                <!-- History logs populating live -->
+            </div>
+            <div class="pt-3 border-t border-slate-800 text-right">
+                <button onclick="closeHistoryModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2 rounded-lg text-xs">
+                    Close Window
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const defaultLat = 19.0760;
+        const defaultLng = 72.8777;
+        const map = L.map('map').setView([defaultLat, defaultLng], 14);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let markers = {};
+
+        async function sendBroadcast() {
+            const input = document.getElementById('broadcastInput');
+            if (!input.value) return;
+            try {
+                await fetch('/api/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: input.value })
+                });
+                alert('Broadcast sent to all victim screens!');
+            } catch(e) {
+                alert('Failed to send broadcast');
+            }
+        }
+
+        async function markRescued(id) {
+            try {
+                await fetch(`/api/sos/rescue/${id}`, { method: 'POST' });
+                if (markers[id]) {
+                    map.removeLayer(markers[id]);
+                    delete markers[id];
+                }
+                fetchSOSReports();
+            } catch(e) {
+                alert('Action failed');
+            }
+        }
+
+        async function fetchSOSReports() {
+            try {
+                const res = await fetch('/api/sos');
+                const reports = await res.json();
+                
+                document.getElementById('activeCount').innerText = `${reports.length} Active Requests`;
+                const queueList = document.getElementById('queueList');
+
+                if (reports.length === 0) {
+                    queueList.innerHTML = `
+                        <div class="text-center py-8 text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                            <p class="text-base font-semibold">No Active SOS Requests</p>
+                            <p class="text-xs mt-1">Connect smartphone to hotspot and submit a form at <code class="text-slate-300">http://192.168.137.1/victim</code></p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                queueList.innerHTML = '';
+                reports.forEach((item, index) => {
+                    let urgencyBadge = 'bg-yellow-950 border-yellow-700 text-yellow-300';
+                    let markerColor = '#eab308';
+                    if (item.urgency === 'Critical') {
+                        urgencyBadge = 'bg-red-950 border-red-700 text-red-300 animate-pulse';
+                        markerColor = '#ef4444';
+                    } else if (item.urgency === 'High') {
+                        urgencyBadge = 'bg-orange-950 border-orange-700 text-orange-300';
+                        markerColor = '#f97316';
+                    }
+
+                    const card = document.createElement('div');
+                    card.className = 'bg-slate-800 border border-slate-700 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-3 hover:border-slate-600 transition';
+                    card.innerHTML = `
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-black text-lg text-white">#${index + 1} - ${item._id || item.id}</span>
+                                <span class="text-xs font-bold px-2 py-0.5 rounded-full border ${urgencyBadge}">${item.urgency.toUpperCase()} URGENCY</span>
+                                <span class="text-xs text-slate-400 font-mono">🕒 ${item.time}</span>
+                            </div>
+                            <div class="text-sm text-slate-300">
+                                👥 <strong>Headcount:</strong> ${item.headcount} Person(s) | 
+                                ⚠️ <strong>Vulnerabilities:</strong> ${item.vulnerabilities && item.vulnerabilities.length ? item.vulnerabilities.join(', ') : 'None'}
+                            </div>
+                            <div class="text-xs text-slate-400 font-mono">📍 GPS: ${item.lat}, ${item.lng}</div>
+                        </div>
+                        <div class="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                            <div class="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-center">
+                                <span class="block text-[9px] text-slate-400 uppercase font-bold tracking-wider">Priority Score</span>
+                                <span class="text-lg font-black text-red-400">U = ${item.priorityScore}</span>
+                            </div>
+                            <button onclick="markRescued('${item._id || item.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow">
+                                ✅ Mark Rescued
+                            </button>
+                        </div>
+                    `;
+                    queueList.appendChild(card);
+
+                    const itemId = item._id || item.id;
+                    if (!markers[itemId]) {
+                        const circleMarker = L.circleMarker([item.lat, item.lng], {
+                            color: markerColor,
+                            fillColor: markerColor,
+                            fillOpacity: 0.8,
+                            radius: 10
+                        }).addTo(map);
+
+                        circleMarker.bindPopup(`
+                            <div style="color: #000; font-family: sans-serif;">
+                                <strong>${itemId}</strong><br>
+                                Headcount: ${item.headcount}<br>
+                                Urgency: ${item.urgency}<br>
+                                Score U: ${item.priorityScore}
+                            </div>
+                        `);
+
+                        markers[itemId] = circleMarker;
+                        map.panTo([item.lat, item.lng]);
+                    }
+                });
+
+            } catch (err) {
+                console.log('Error polling server');
+            }
+        }
+
+        // History Modal Handlers
+        async function openHistoryModal() {
+            document.getElementById('historyModal').classList.remove('hidden');
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '<p class="text-slate-400">Loading audit history from database...</p>';
+
+            try {
+                const res = await fetch('/api/history');
+                const allDocs = await res.json();
+
+                if (allDocs.length === 0) {
+                    historyList.innerHTML = '<p class="text-slate-500">No database logs recorded yet.</p>';
+                    return;
+                }
+
+                historyList.innerHTML = '';
+                allDocs.forEach(doc => {
+                    const isRescued = doc.status === 'RESCUED';
+                    const statusBadge = isRescued ? 
+                        '<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-bold">RESCUED</span>' : 
+                        '<span class="bg-amber-950 text-amber-300 border border-amber-700 px-2 py-0.5 rounded-full text-[10px] font-bold">ACTIVE PENDING</span>';
+
+                    const row = document.createElement('div');
+                    row.className = 'bg-slate-950 p-3 rounded-lg border border-slate-800 flex justify-between items-center';
+                    row.innerHTML = `
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <strong class="text-slate-200 font-mono text-sm">${doc._id || doc.id}</strong>
+                                ${statusBadge}
+                                <span class="text-slate-500 text-[10px]">🕒 ${doc.time || 'N/A'}</span>
+                            </div>
+                            <div class="text-slate-400 mt-1">
+                                👥 Headcount: ${doc.headcount} | Urgency: ${doc.urgency} | Score U: ${doc.priorityScore}
+                            </div>
+                        </div>
+                    `;
+                    historyList.appendChild(row);
+                });
+            } catch(e) {
+                historyList.innerHTML = '<p class="text-red-400">Failed to fetch database logs.</p>';
+            }
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('historyModal').classList.add('hidden');
+        }
+
+        setInterval(fetchSOSReports, 1500);
+        fetchSOSReports();
+    </script>
+</body>
+</html>
